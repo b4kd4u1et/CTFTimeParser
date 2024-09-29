@@ -1,0 +1,10 @@
+import time
+
+TimeRangeForParseFromCtftimeInDays = 7
+TimeRangeForParseFromCtftimeInSeconds = 86400 * TimeRangeForParseFromCtftimeInDays
+
+def SetTimestamps():
+	
+
+TgBotToken = "Token"
+
