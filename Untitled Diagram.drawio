@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0" version="24.7.16">
   <diagram name="Page-1" id="3y4aifLqgROa9o55nkaQ">
-    <mxGraphModel dx="1687" dy="887" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="2537" dy="1987" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -89,6 +89,12 @@
         </mxCell>
         <mxCell id="k8HMDKDXzCXojnugXpO2-29" value="Writer" style="whiteSpace=wrap;html=1;rounded=0;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
           <mxGeometry x="955" y="580" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="k8HMDKDXzCXojnugXpO2-31" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeWidth=10;glass=0;" vertex="1" parent="1">
+          <mxGeometry x="-30" width="1140" height="760" as="geometry" />
+        </mxCell>
+        <mxCell id="k8HMDKDXzCXojnugXpO2-32" value="&lt;pre&gt;&lt;font color=&quot;#6e94ff&quot; style=&quot;font-size: 24px;&quot;&gt;General Architecture of Bot&lt;/font&gt;&lt;br&gt;&lt;/pre&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="-30" width="430" height="70" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
