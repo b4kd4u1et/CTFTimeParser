@@ -35,10 +35,10 @@ mysql -u root -p ctftimeparser < schema.sql
 
 ### 2. Configure
 
-Copy and fill in your credentials:
+Copy the sample config and fill in your credentials:
 
 ```bash
-cp config.php config.local.php
+cp config.php.sample config.php
 ```
 
 Edit `config.php`:
