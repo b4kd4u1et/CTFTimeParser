@@ -23,7 +23,7 @@ return [
 
     'parser' => [
         // How many days ahead to fetch events
-        'days_ahead'             => 7,
+        'days_ahead'             => 14,
         // CTFTime API max results per request
         'events_limit'           => 100,
         // cURL timeout in seconds
@@ -32,5 +32,20 @@ return [
         'sleep_between_requests' => 1,
     ],
 
-    'log_file' => __DIR__ . '/logs/parser.log',
+    'telegram' => [
+        // Bot token from @BotFather
+        'bot_token'              => 'YOUR_BOT_TOKEN',
+        // Supergroup chat ID (negative number, e.g. -1001234567890)
+        // Send any message to @userinfobot or use getUpdates to find it
+        'chat_id'                => '-1001234567890',
+        // Topic (thread) ID for the announcements topic
+        // Forward any message from the topic to @JsonDumpBot to find it
+        'thread_id'              => 123,
+        // Pause between individual daily-update messages (seconds)
+        // Telegram global limit is ~30 messages/sec; 2s is safe for a single bot
+        'sleep_between_messages' => 2,
+    ],
+
+    'log_file'           => __DIR__ . '/logs/parser.log',
+    'publisher_log_file' => __DIR__ . '/logs/publisher.log',
 ];

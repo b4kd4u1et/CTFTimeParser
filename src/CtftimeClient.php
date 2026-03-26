@@ -88,6 +88,9 @@ class CtftimeClient
         }
 
         $ch = curl_init();
+        if ($ch === false) {
+            return null;
+        }
         curl_setopt_array($ch, [
             CURLOPT_URL            => $url,
             CURLOPT_RETURNTRANSFER => true,

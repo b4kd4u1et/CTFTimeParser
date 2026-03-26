@@ -7,6 +7,9 @@ class Formatter
     // Maximum description length shown in the message
     private const DESC_PREVIEW_LEN = 300;
 
+    // Telegram HTML message character limit
+    private const TELEGRAM_MAX_LEN = 4096;
+
     /**
      * Format a ctf_events row into an HTML string for Telegram.
      *
@@ -22,7 +25,7 @@ class Formatter
         $lines = [];
 
         // --- Title ---
-        $lines[] = '🚩 <b>' . self::e($event['title']) . '</b>';
+        $lines[] = '🚩 <b>' . self::e((string) ($event['title'] ?? '')) . '</b>';
         $lines[] = '';
 
         // --- Dates ---
@@ -61,6 +64,90 @@ class Formatter
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Format a list of ctf_events rows into a compact weekly digest.
+     *
+     * Returns an array of Telegram-ready HTML strings. If the combined text
+     * would exceed Telegram's 4096-character message limit the digest is split
+     * into multiple parts; each continuation part gets its own header.
+     *
+     * posted_at is NOT touched — the digest is a read-only summary.
+     *
+     * @param  array  $events  Rows from ctf_events, ordered by start_time ASC
+     * @param  int    $days    Lookahead window (used only for the header label)
+     * @return string[]        One or more ready-to-send HTML message parts
+     */
+    public static function digest(array $events, int $days = 14): array
+    {
+        if (empty($events)) {
+            return [];
+        }
+
+        $now   = time();
+        $until = $now + ($days * 86400);
+
+        $header = sprintf(
+            "📋 <b>CTF Events — next %d days</b>\n<i>%s – %s</i>",
+            $days,
+            gmdate('d M Y', $now),
+            gmdate('d M Y', $until)
+        );
+        $contHeader = '📋 <b>CTF Events (cont.)</b>';
+
+        // Build compact per-event line
+        $items = [];
+        foreach ($events as $event) {
+            $title = self::e((string) ($event['title'] ?? ''));
+            $link  = !empty($event['ctftime_url'])
+                ? '<a href="' . self::e((string) $event['ctftime_url']) . '">' . $title . '</a>'
+                : $title;
+
+            $meta = [];
+            $dates = self::formatCompactDates($event['start_time'], $event['finish_time']);
+            if ($dates !== null) {
+                $meta[] = $dates;
+            }
+            if (!empty($event['format'])) {
+                $meta[] = self::e((string) $event['format']);
+            }
+            if (!empty($event['onsite']) && !empty($event['location'])) {
+                $meta[] = self::e((string) $event['location']);
+            } else {
+                $meta[] = 'Online';
+            }
+
+            $items[] = '• ' . $link . "\n  📅 " . implode(' | ', $meta);
+        }
+
+        // Pack items into Telegram message parts (≤ TELEGRAM_MAX_LEN chars each)
+        $parts         = [];
+        $currentHeader = $header;
+        $currentBody   = '';
+
+        foreach ($items as $item) {
+            $candidate = $currentBody === ''
+                ? $currentHeader . "\n\n" . $item
+                : $currentHeader . "\n\n" . $currentBody . "\n\n" . $item;
+
+            if (mb_strlen($candidate) > self::TELEGRAM_MAX_LEN && $currentBody !== '') {
+                // Current part is full — flush and start a new one
+                $parts[]       = $currentHeader . "\n\n" . $currentBody;
+                $currentHeader = $contHeader;
+                $currentBody   = $item;
+            } else {
+                $currentBody = $currentBody === ''
+                    ? $item
+                    : $currentBody . "\n\n" . $item;
+            }
+        }
+
+        if ($currentBody !== '') {
+            $parts[] = $currentHeader . "\n\n" . $currentBody;
+        }
+
+        return $parts;
     }
 
     // -------------------------------------------------------------------------
@@ -151,6 +238,39 @@ class Formatter
         }
 
         return $parts ? '🔗 ' . implode('  ·  ', $parts) : null;
+    }
+
+    /**
+     * Compact date range without year, used in digest lines.
+     *
+     * Examples:
+     *   "28 Mar — 30 Mar"
+     *   "02 Apr"
+     */
+    private static function formatCompactDates(?string $start, ?string $finish): ?string
+    {
+        if ($start === null) {
+            return null;
+        }
+
+        $startTs = strtotime($start);
+        if ($startTs === false) {
+            return null;
+        }
+
+        $startStr = gmdate('d M', $startTs);
+
+        if ($finish !== null) {
+            $finishTs = strtotime($finish);
+            if ($finishTs !== false && $finishTs > $startTs) {
+                $finishStr = gmdate('d M', $finishTs);
+                if ($finishStr !== $startStr) {
+                    return $startStr . ' — ' . $finishStr;
+                }
+            }
+        }
+
+        return $startStr;
     }
 
     /**
