@@ -1,32 +1,296 @@
 # CTFTimeParser
 
-A lightweight PHP + MySQL parser that fetches upcoming CTF event announcements from [CTFTime](https://ctftime.org/) and stores them for publication in a Telegram supergroup topic.
+> [Қазақша](#қазақша) · [Русский](#русский) · [English](#english)
 
 ---
 
-## Features
+## Қазақша
 
-- Fetches events via the [CTFTime public API](https://ctftime.org/api)
+**CTFTimeParser** — [CTFTime](https://ctftime.org/) сайтынан алдағы CTF жарыстары туралы хабарландыруларды жинап, оларды Telegram супертопқа жариялау үшін MySQL дерекқорына сақтайтын жеңіл PHP + MySQL парсері.
+
+### Мүмкіндіктер
+
+- CTFTime API арқылы оқиғаларды автоматты жинау
+- Екі сатылы буфер: деректер қайталанбауы үшін алдын ала сүзгіден өтеді
+- XSS, SSTI, SQLi, SSRF және күдікті URL-дерге қарсы мазмұн қауіпсіздігі тексерулері
+- Қауіпті оқиғалар `is_safe=0` белгісімен сақталып, жариялаудан ұсталады
+- Сыртқы тәуелділіктер жоқ — таза PHP 8 + PDO + cURL
+- Атомдық блокировка файлы cron-процестерінің қабаттасуын болдырмайды
+- Файлдық логтау, 5 МБ-тан асқанда автоматты ротация
+
+### Талаптар
+
+- PHP 8.0+
+- MySQL 8.0+ (немесе MariaDB 10.5+)
+- PHP кеңейтімдері: `pdo_mysql`, `curl`, `mbstring`
+
+### Орнату
+
+#### 1. Дерекқор және пайдаланушы жасау
+
+```sql
+CREATE DATABASE ctftimeparser CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER 'ctfparser'@'localhost' IDENTIFIED BY 'strong_password';
+GRANT SELECT, INSERT, UPDATE, DELETE ON ctftimeparser.* TO 'ctfparser'@'localhost';
+```
+
+Схеманы қолдану:
+
+```bash
+mysql -u ctfparser -p ctftimeparser < schema.sql
+```
+
+#### 2. Конфигурация
+
+```bash
+cp config.php.sample config.php
+```
+
+`config.php` файлын өңдеңіз:
+
+```php
+'db' => [
+    'host' => 'localhost',
+    'name' => 'ctftimeparser',
+    'user' => 'ctfparser',
+    'pass' => 'strong_password',
+],
+```
+
+#### 3. Қолмен іске қосу
+
+```bash
+php parser.php
+```
+
+#### 4. Cron арқылы жоспарлау (әр 6 сағат сайын)
+
+```
+0 */6 * * * /usr/bin/php /path/to/parser.php
+```
+
+### Жоба құрылымы
+
+```
+CTFTimeParser/
+├── parser.php                 # Кіру нүктесі (cron арқылы іске қосылады)
+├── config.php                 # Дерекқор және парсер параметрлері (gitignored)
+├── config.php.sample          # Конфигурация үлгісі
+├── schema.sql                 # Дерекқор схемасы
+├── src/
+│   ├── CtftimeClient.php      # CTFTime API клиенті (cURL)
+│   ├── ContentSecurity.php    # Мазмұн қауіпсіздігі тексерулері
+│   ├── Database.php           # PDO орауышы, барлық сұраулар
+│   └── Formatter.php          # Telegram HTML хабар форматтаушы
+└── logs/
+    └── parser.log             # Жұмыс логы (5 МБ кезінде ротация)
+```
+
+### Жұмыс принципі
+
+Әр іске қосылғанда парсер үш қадамды орындайды:
+
+1. **ID жинау** — CTFTime API-дан келесі 7 күнгі оқиғалар тізімін алады және барлық ID-ларды `parser_buffer` кестесіне жазады.
+2. **Қайталаулар жою** — `ctf_events`-те бар ID-ларды буферден тазартады.
+3. **Жүктеп сақтау** — қалған ID-лар бойынша толық мәліметтерді жүктейді, қауіпсіздік тексерулерін жүргізеді және `ctf_events` кестесіне сақтайды.
+
+### Ақаулықтарды жою
+
+| Қате | Шешім |
+|------|-------|
+| `Permission denied` (logs/) | `chmod 755 logs/` |
+| `PDO connection failed` | `config.php` деректерін тексеріңіз, пайдаланушы артықшылықтарын растаңыз |
+| `Could not create lock file` | `/tmp` каталогының жазу рұқсатын тексеріңіз |
+| Оқиғалар пайда болмайды | API-дан бос жауап қалыпты (7 күнде оқиға жоқ). Логтарды тексеріңіз |
+| `Another instance is already running` | Алдыңғы процесс аяқталғанша күтіңіз немесе `php parser.php` процесі жоқ екенін тексеріңіз |
+
+---
+
+## Русский
+
+**CTFTimeParser** — лёгкий PHP + MySQL парсер, который собирает объявления о предстоящих CTF-соревнованиях с [CTFTime](https://ctftime.org/) и сохраняет их в базу данных для публикации в Telegram-супергруппе.
+
+### Возможности
+
+- Автоматический сбор событий через CTFTime API
+- Двухэтапный буфер: дедупликация перед загрузкой деталей
+- Проверки безопасности контента: XSS, SSTI, SQLi, SSRF, подозрительные URL
+- Небезопасные события сохраняются с флагом `is_safe=0` и не публикуются
+- Без внешних зависимостей — чистый PHP 8 + PDO + cURL
+- Атомарная блокировка предотвращает параллельный запуск cron-задач
+- Файловое логирование с автоматической ротацией при 5 МБ
+
+### Требования
+
+- PHP 8.0+
+- MySQL 8.0+ (или MariaDB 10.5+)
+- PHP-расширения: `pdo_mysql`, `curl`, `mbstring`
+
+### Установка
+
+#### 1. Создание базы данных и пользователя
+
+```sql
+CREATE DATABASE ctftimeparser CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Выделенный пользователь с минимальными привилегиями, не root
+CREATE USER 'ctfparser'@'localhost' IDENTIFIED BY 'strong_password';
+GRANT SELECT, INSERT, UPDATE, DELETE ON ctftimeparser.* TO 'ctfparser'@'localhost';
+```
+
+Применить схему:
+
+```bash
+mysql -u ctfparser -p ctftimeparser < schema.sql
+```
+
+#### 2. Конфигурация
+
+```bash
+cp config.php.sample config.php
+```
+
+Отредактируйте `config.php`:
+
+```php
+'db' => [
+    'host' => 'localhost',
+    'name' => 'ctftimeparser',
+    'user' => 'ctfparser',
+    'pass' => 'strong_password',
+],
+```
+
+#### 3. Ручной запуск
+
+```bash
+php parser.php
+```
+
+#### 4. Запуск через cron (каждые 6 часов)
+
+```
+0 */6 * * * /usr/bin/php /path/to/parser.php
+```
+
+### Структура проекта
+
+```
+CTFTimeParser/
+├── parser.php                 # Точка входа (запускается через cron)
+├── config.php                 # Настройки БД и парсера (gitignored)
+├── config.php.sample          # Шаблон конфигурации
+├── schema.sql                 # Схема базы данных
+├── src/
+│   ├── CtftimeClient.php      # Клиент CTFTime API (cURL)
+│   ├── ContentSecurity.php    # Проверки безопасности контента
+│   ├── Database.php           # Обёртка PDO, все запросы
+│   └── Formatter.php          # Форматтер Telegram HTML-сообщений
+└── logs/
+    └── parser.log             # Лог работы (ротация при 5 МБ)
+```
+
+### Принцип работы
+
+При каждом запуске парсер выполняет три шага:
+
+1. **Сбор ID** — получает список событий на следующие 7 дней из CTFTime API и записывает все ID в таблицу `parser_buffer`.
+2. **Дедупликация** — удаляет из буфера ID, уже присутствующие в `ctf_events`.
+3. **Загрузка и сохранение** — для каждого оставшегося ID загружает полные данные, выполняет проверки безопасности и сохраняет запись в `ctf_events`. Между запросами — пауза 1 секунда.
+
+### Схема базы данных
+
+#### `parser_buffer`
+
+| Столбец | Тип | Описание |
+|---------|-----|----------|
+| `event_id` | INT UNSIGNED PK | ID события CTFTime |
+| `created_at` | DATETIME | Время создания записи |
+
+#### `ctf_events`
+
+| Столбец | Тип | Описание |
+|---------|-----|----------|
+| `id` | INT UNSIGNED PK | ID события CTFTime |
+| `title` | VARCHAR(255) | Название события |
+| `url` | VARCHAR(512) | Официальный сайт события |
+| `ctftime_url` | VARCHAR(512) | Страница события на CTFTime |
+| `start_time` | DATETIME | Начало (UTC) |
+| `finish_time` | DATETIME | Конец (UTC) |
+| `format` | VARCHAR(64) | Jeopardy / Attack-Defense / и др. |
+| `weight` | FLOAT | Рейтинговый вес CTFTime |
+| `onsite` | TINYINT(1) | 1 = очное мероприятие |
+| `location` | VARCHAR(255) | Город/страна для очных событий |
+| `description` | TEXT | Описание события |
+| `logo_url` | VARCHAR(512) | URL логотипа |
+| `is_safe` | TINYINT(1) | 0 = помечено проверкой безопасности |
+| `posted_at` | DATETIME | NULL = ещё не опубликовано в Telegram |
+| `created_at` | DATETIME | Время создания записи |
+
+### Безопасность
+
+Аудит по **[OWASP Top 10:2025](https://owasp.org/Top10/2025/)**.
+
+| OWASP | Угроза | Защита |
+|-------|--------|--------|
+| A01 | SSRF | `CURLOPT_FOLLOWLOCATION=false`; только HTTPS к `ctftime.org`; проверка приватных IP-диапазонов |
+| A02 | Security Misconfiguration | Выделенный пользователь БД с минимальными привилегиями; `config.php` исключён из VCS |
+| A05 | SQLi | PDO prepared statements повсюду; никакой интерполяции пользовательских данных |
+| A05 | SSTI | Regex-детекция паттернов `{{ }}`, `{% %}`, `<% %>`, `${}`, `#{}` |
+| A05 | XSS | `strip_tags()` + `htmlspecialchars()` на всех строковых полях перед сохранением |
+| A06 | Insecure Design | Белый список схем URL (`http`/`https`); ограничения длины полей |
+| A08 | Data Integrity | ID события берётся из пути запроса, а не из тела ответа; лимит глубины JSON |
+| A09 | Security Logging | Структурированный лог с уровнем + временной меткой; ротация при 5 МБ |
+| A10 | Race Condition | Атомарная блокировка `fopen('c')+flock(LOCK_EX\|LOCK_NB)`; OS освобождает блокировку при краше |
+
+### Логирование
+
+```
+[2026-03-26 12:00:00] [INFO] Fetching event list [2026-03-26 – 2026-04-02]
+[2026-03-26 12:00:01] [INFO] Received 14 event IDs from API.
+[2026-03-26 12:00:01] [INFO] Buffer cleaned (removed already-known events).
+[2026-03-26 12:00:01] [INFO] 3 new event(s) to process.
+[2026-03-26 12:00:02] [INFO] Event #2345 saved: "CTF Example 2026" (safe=1)
+[2026-03-26 12:00:03] [WARN] Event #2346: flagged as unsafe. Stored with is_safe=0.
+[2026-03-26 12:00:04] [INFO] Done. Saved: 3 | Unsafe (stored): 1 | Skipped: 0
+```
+
+### Устранение неполадок
+
+| Ошибка | Решение |
+|--------|---------|
+| `Permission denied` (logs/) | `chmod 755 logs/` |
+| `PDO connection failed` | Проверьте `config.php`, убедитесь в правах пользователя БД |
+| `Could not create lock file` | Проверьте права на запись в `/tmp` |
+| События не появляются | Пустой ответ API — норма (нет событий на 7 дней). Проверьте логи |
+| `Another instance is already running` | Дождитесь завершения предыдущего процесса или убедитесь, что `php parser.php` не запущен |
+
+---
+
+## English
+
+**CTFTimeParser** is a lightweight PHP + MySQL parser that fetches upcoming CTF event announcements from [CTFTime](https://ctftime.org/) and stores them for publication in a Telegram supergroup topic.
+
+### Features
+
+- Fetches events via the CTFTime public API
 - Two-stage buffer pipeline — deduplication before fetching details
-- Content security checks: XSS, SSTI, SQLi, SSRF, suspicious URLs, anomalous strings
+- Content security checks: XSS, SSTI, SQLi, SSRF, suspicious URLs
 - Unsafe events are stored with `is_safe=0` and held back from publication
 - No external dependencies — pure PHP 8 + PDO + cURL
 - Atomic lock file prevents overlapping cron runs
 - File-based logging with automatic rotation at 5 MB
 
----
-
-## Requirements
+### Requirements
 
 - PHP 8.0+
 - MySQL 8.0+ (or MariaDB 10.5+)
 - PHP extensions: `pdo_mysql`, `curl`, `mbstring`
 
----
+### Setup
 
-## Setup
-
-### 1. Create the database and user
+#### 1. Create the database and user
 
 ```sql
 CREATE DATABASE ctftimeparser CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -42,9 +306,7 @@ Apply the schema:
 mysql -u ctfparser -p ctftimeparser < schema.sql
 ```
 
-### 2. Configure
-
-Copy the sample config and fill in your credentials:
+#### 2. Configure
 
 ```bash
 cp config.php.sample config.php
@@ -61,21 +323,19 @@ Edit `config.php`:
 ],
 ```
 
-### 3. Run manually
+#### 3. Run manually
 
 ```bash
 php parser.php
 ```
 
-### 4. Schedule via cron (every 6 hours)
+#### 4. Schedule via cron (every 6 hours)
 
 ```
 0 */6 * * * /usr/bin/php /path/to/parser.php
 ```
 
----
-
-## Project Structure
+### Project Structure
 
 ```
 CTFTimeParser/
@@ -92,36 +352,27 @@ CTFTimeParser/
     └── parser.log             # Runtime log (auto-created, rotates at 5 MB)
 ```
 
----
-
-## How It Works
+### How It Works
 
 The parser follows a three-step pipeline on each run:
 
-**Step 1 — Collect IDs**
-Fetches the event list from CTFTime API for the next 7 days and writes all event IDs into the `parser_buffer` table (`INSERT IGNORE`).
+1. **Collect IDs** — fetches the event list from CTFTime API for the next 7 days and writes all event IDs into the `parser_buffer` table.
+2. **Deduplicate** — removes any IDs from `parser_buffer` that already exist in `ctf_events`.
+3. **Fetch and store** — for each remaining ID, fetches full event details, runs security checks, and inserts the sanitized record into `ctf_events`. Each request is followed by a 1-second pause to avoid hammering the API.
 
-**Step 2 — Deduplicate**
-Removes any IDs from `parser_buffer` that already exist in `ctf_events`, so only genuinely new events proceed.
+### Database Schema
 
-**Step 3 — Fetch and store**
-For each remaining ID, fetches the full event details, runs security checks, and inserts the sanitized record into `ctf_events`. Each request is followed by a 1-second pause to avoid hammering the API.
-
----
-
-## Database Schema
-
-### `parser_buffer`
+#### `parser_buffer`
 
 | Column | Type | Description |
-|---|---|---|
+|--------|------|-------------|
 | `event_id` | INT UNSIGNED PK | CTFTime event ID |
 | `created_at` | DATETIME | Row creation time |
 
-### `ctf_events`
+#### `ctf_events`
 
 | Column | Type | Description |
-|---|---|---|
+|--------|------|-------------|
 | `id` | INT UNSIGNED PK | CTFTime event ID |
 | `title` | VARCHAR(255) | Event name |
 | `url` | VARCHAR(512) | Official event website |
@@ -141,31 +392,23 @@ For each remaining ID, fetches the full event details, runs security checks, and
 Events with `is_safe = 0` are stored but **not published** until manually reviewed.
 Events with `posted_at IS NULL` are pending publication.
 
----
-
-## Security
+### Security
 
 Audited against **[OWASP Top 10:2025](https://owasp.org/Top10/2025/)**.
 
 | OWASP | Threat | Defence |
-|---|---|---|
-| A01 | Broken Access Control / SSRF | `CURLOPT_FOLLOWLOCATION=false`; HTTPS-only to `ctftime.org`; credentials in URL rejected; private IP range check on literal IPs |
-| A02 | Security Misconfiguration | Dedicated DB user with minimum privileges; `config.php` excluded from version control |
-| A05 | Injection — SQLi | PDO prepared statements throughout; no string interpolation of user data; supplementary regex detection in content |
-| A05 | Injection — SSTI | Regex detection of `{{ }}`, `{% %}`, `<% %>`, `${}`, `#{}` patterns in title/description |
-| A05 | Injection — XSS | `strip_tags()` + `htmlspecialchars()` on all string fields before storage |
-| A06 | Insecure Design | No blocking DNS resolution; URL scheme whitelist (`http`/`https` only); field length limits enforced |
-| A08 | Data Integrity | Event ID overridden from request path, not response body; JSON depth limit prevents deep-parse attacks |
-| A09 | Security Logging Failures | Structured log with level + timestamp; automatic rotation at 5 MB |
-| A10 | Mishandling of Exceptional Conditions | Atomic lock via `fopen('c')+flock(LOCK_EX\|LOCK_NB)` — no TOCTOU race; OS releases lock on crash; index-based loop control replaces broken `next()` |
+|-------|--------|---------|
+| A01 | SSRF | `CURLOPT_FOLLOWLOCATION=false`; HTTPS-only to `ctftime.org`; private IP range check |
+| A02 | Security Misconfiguration | Dedicated DB user with minimum privileges; `config.php` excluded from VCS |
+| A05 | SQLi | PDO prepared statements throughout; no string interpolation of user data |
+| A05 | SSTI | Regex detection of `{{ }}`, `{% %}`, `<% %>`, `${}`, `#{}` patterns |
+| A05 | XSS | `strip_tags()` + `htmlspecialchars()` on all string fields before storage |
+| A06 | Insecure Design | URL scheme whitelist (`http`/`https` only); field length limits enforced |
+| A08 | Data Integrity | Event ID taken from request path, not response body; JSON depth limit |
+| A09 | Security Logging | Structured log with level + timestamp; automatic rotation at 5 MB |
+| A10 | Race Condition | Atomic lock via `fopen('c')+flock(LOCK_EX\|LOCK_NB)`; OS releases lock on crash |
 
-Events that fail any content check are stored with `is_safe=0` and withheld from publication pending manual review.
-
----
-
-## Logging
-
-Logs are written to `logs/parser.log` and automatically rotated to `parser.log.old` when the file exceeds 5 MB:
+### Logging
 
 ```
 [2026-03-26 12:00:00] [INFO] Fetching event list [2026-03-26 – 2026-04-02]
@@ -177,26 +420,12 @@ Logs are written to `logs/parser.log` and automatically rotated to `parser.log.o
 [2026-03-26 12:00:04] [INFO] Done. Saved: 3 | Unsafe (stored): 1 | Skipped: 0
 ```
 
----
+### Troubleshooting
 
-## Troubleshooting
-
-**`Permission denied` writing to `logs/`**
-```bash
-chmod 755 logs/
-```
-
-**`PDO connection failed` / `Access denied for user`**
-- Verify `config.php` credentials match your MySQL user
-- Confirm the user has been granted privileges: `SHOW GRANTS FOR 'ctfparser'@'localhost';`
-
-**`Could not create lock file`**
-- Check that `sys_get_temp_dir()` (usually `/tmp`) is writable by the PHP process user
-
-**No events appear after running**
-- CTFTime API may return an empty list if no events are scheduled in the next 7 days — this is normal
-- Check `logs/parser.log` for API errors or HTTP status codes other than 200
-
-**`Another instance is already running`**
-- A previous run is still in progress, or it crashed while holding the lock
-- Because `flock()` is used, the lock releases automatically when the process exits — wait for the current run to finish or verify no `php parser.php` process is running
+| Error | Fix |
+|-------|-----|
+| `Permission denied` (logs/) | `chmod 755 logs/` |
+| `PDO connection failed` | Verify `config.php` credentials; check user grants |
+| `Could not create lock file` | Ensure `/tmp` is writable by the PHP process user |
+| No events appear | Empty API response is normal if no events in next 7 days. Check logs |
+| `Another instance is already running` | Wait for current run to finish or verify no `php parser.php` process is running |
