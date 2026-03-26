@@ -1,3 +1,18 @@
-*.log
-*.conf
+# Configuration with real credentials — copy config.php.sample → config.php
+/config.php
 
+# Logs
+/logs/*.log
+
+# Dependencies (if Composer is added later)
+/vendor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

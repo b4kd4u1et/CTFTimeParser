@@ -1,0 +1,36 @@
+<?php
+
+declare(strict_types=1);
+
+// Copy this file to config.php and fill in your values.
+// config.php is listed in .gitignore and must never be committed.
+//
+// WARNING (A02:2025 — Security Misconfiguration):
+// Never use root with an empty password in production.
+// Create a dedicated MySQL user with the minimum required privileges:
+//   CREATE USER 'ctfparser'@'localhost' IDENTIFIED BY 'strong_password';
+//   GRANT SELECT, INSERT, UPDATE, DELETE ON ctftimeparser.* TO 'ctfparser'@'localhost';
+
+return [
+    'db' => [
+        'host'    => 'localhost',
+        'port'    => 3306,
+        'name'    => 'ctftimeparser',
+        'user'    => 'db_user',
+        'pass'    => 'db_password',
+        'charset' => 'utf8mb4',
+    ],
+
+    'parser' => [
+        // How many days ahead to fetch events
+        'days_ahead'             => 7,
+        // CTFTime API max results per request
+        'events_limit'           => 100,
+        // cURL timeout in seconds
+        'request_timeout'        => 10,
+        // Pause between per-event detail requests (seconds)
+        'sleep_between_requests' => 1,
+    ],
+
+    'log_file' => __DIR__ . '/logs/parser.log',
+];
