@@ -9,6 +9,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/src/Database.php';
 require_once __DIR__ . '/src/Formatter.php';
 require_once __DIR__ . '/src/TelegramBot.php';
+require_once __DIR__ . '/src/Logger.php';
 
 $config = require __DIR__ . '/config.php';
 
@@ -17,16 +18,6 @@ $config = require __DIR__ . '/config.php';
 // ---------------------------------------------------------------------------
 
 $logFile = $config['publisher_log_file'];
-
-function log_msg(string $level, string $message, string $logFile): void
-{
-    if (file_exists($logFile) && filesize($logFile) > 5 * 1024 * 1024) {
-        @rename($logFile, $logFile . '.old');
-    }
-
-    $line = sprintf('[%s] [%s] %s' . PHP_EOL, date('Y-m-d H:i:s'), strtoupper($level), $message);
-    file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
-}
 
 $log = fn(string $level, string $msg) => log_msg($level, $msg, $logFile);
 

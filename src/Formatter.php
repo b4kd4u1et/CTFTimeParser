@@ -7,6 +7,9 @@ class Formatter
     // Maximum description length shown in the message
     private const DESC_PREVIEW_LEN = 300;
 
+    // Telegram HTML message character limit
+    private const TELEGRAM_MAX_LEN = 4096;
+
     /**
      * Format a ctf_events row into an HTML string for Telegram.
      *
@@ -22,7 +25,7 @@ class Formatter
         $lines = [];
 
         // --- Title ---
-        $lines[] = '🚩 <b>' . self::e($event['title']) . '</b>';
+        $lines[] = '🚩 <b>' . self::e((string) ($event['title'] ?? '')) . '</b>';
         $lines[] = '';
 
         // --- Dates ---
@@ -118,8 +121,7 @@ class Formatter
             $items[] = '• ' . $link . "\n  📅 " . implode(' | ', $meta);
         }
 
-        // Pack items into Telegram message parts (≤ 4096 chars each)
-        $maxLen        = 4096;
+        // Pack items into Telegram message parts (≤ TELEGRAM_MAX_LEN chars each)
         $parts         = [];
         $currentHeader = $header;
         $currentBody   = '';
@@ -129,7 +131,7 @@ class Formatter
                 ? $currentHeader . "\n\n" . $item
                 : $currentHeader . "\n\n" . $currentBody . "\n\n" . $item;
 
-            if (mb_strlen($candidate) > $maxLen && $currentBody !== '') {
+            if (mb_strlen($candidate) > self::TELEGRAM_MAX_LEN && $currentBody !== '') {
                 // Current part is full — flush and start a new one
                 $parts[]       = $currentHeader . "\n\n" . $currentBody;
                 $currentHeader = $contHeader;

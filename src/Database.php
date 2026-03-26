@@ -83,7 +83,18 @@ class Database
             VALUES
                 (:id, :title, :url, :ctftime_url, :start_time, :finish_time,
                  :format, :weight, :onsite, :location, :description, :logo_url, :is_safe)
-            ON DUPLICATE KEY UPDATE `id` = `id`
+            ON DUPLICATE KEY UPDATE
+                `title`       = VALUES(`title`),
+                `url`         = VALUES(`url`),
+                `ctftime_url` = VALUES(`ctftime_url`),
+                `start_time`  = VALUES(`start_time`),
+                `finish_time` = VALUES(`finish_time`),
+                `format`      = VALUES(`format`),
+                `weight`      = VALUES(`weight`),
+                `onsite`      = VALUES(`onsite`),
+                `location`    = VALUES(`location`),
+                `description` = VALUES(`description`),
+                `logo_url`    = VALUES(`logo_url`)
         ';
 
         $stmt = $this->pdo->prepare($sql);
