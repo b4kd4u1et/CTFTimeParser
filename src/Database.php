@@ -114,4 +114,52 @@ class Database
         );
         $stmt->execute([$id]);
     }
+
+    // -------------------------------------------------------------------------
+    // Publisher queries
+    // -------------------------------------------------------------------------
+
+    /**
+     * Return all safe events not yet published to Telegram, ordered by start_time.
+     * Used by the daily update mode of publisher.php.
+     */
+    public function getUnpublishedEvents(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT * FROM `ctf_events`
+             WHERE `posted_at` IS NULL AND `is_safe` = 1
+             ORDER BY `start_time` ASC'
+        );
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Return safe upcoming events starting within the next $days days.
+     * Used by the Monday weekly digest mode of publisher.php.
+     */
+    public function getUpcomingEvents(int $days): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM `ctf_events`
+             WHERE `is_safe` = 1
+               AND `start_time` >= NOW()
+               AND `start_time` <= DATE_ADD(NOW(), INTERVAL :days DAY)
+             ORDER BY `start_time` ASC'
+        );
+        $stmt->execute([':days' => $days]);
+
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Mark an event as published by setting posted_at to the current timestamp.
+     */
+    public function markAsPosted(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE `ctf_events` SET `posted_at` = NOW() WHERE `id` = ?'
+        );
+        $stmt->execute([$id]);
+    }
 }
