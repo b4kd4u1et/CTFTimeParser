@@ -14,7 +14,7 @@ return [
 
     'parser' => [
         // How many days ahead to fetch events
-        'days_ahead'               => 7,
+        'days_ahead'               => 14,
         // CTFTime API max results per request
         'events_limit'             => 100,
         // cURL timeout in seconds

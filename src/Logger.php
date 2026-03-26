@@ -9,6 +9,6 @@ function log_msg(string $level, string $message, string $logFile): void
         rename($logFile, $logFile . '.old');
     }
 
-    $line = sprintf('[%s] [%s] %s' . PHP_EOL, date('Y-m-d H:i:s'), strtoupper($level), $message);
+    $line = sprintf('[%s] [%s] %s' . PHP_EOL, gmdate('Y-m-d H:i:s'), strtoupper($level), $message);
     file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
 }

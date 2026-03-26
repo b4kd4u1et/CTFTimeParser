@@ -115,7 +115,7 @@ CTFTimeParser/
 Runs every 6 hours. Follows a three-step pipeline:
 
 **Step 1 — Collect IDs**
-Fetches the event list from CTFTime API for the next 7 days and writes all event IDs into `parser_buffer` (`INSERT IGNORE`).
+Fetches the event list from CTFTime API for the next 14 days and writes all event IDs into `parser_buffer` (`INSERT IGNORE`).
 
 **Step 2 — Deduplicate**
 Removes IDs from `parser_buffer` that already exist in `ctf_events`.
