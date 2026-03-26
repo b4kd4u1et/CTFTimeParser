@@ -14,12 +14,18 @@ $config = require __DIR__ . '/config.php';
 
 // ---------------------------------------------------------------------------
 // Logger (simple file-based, no external dependencies)
+// A09:2025 — rotates at 5 MB to prevent unbounded log growth.
 // ---------------------------------------------------------------------------
 
 $logFile = $config['log_file'];
 
 function log_msg(string $level, string $message, string $logFile): void
 {
+    // Rotate when log exceeds 5 MB — previous log kept as .old
+    if (file_exists($logFile) && filesize($logFile) > 5 * 1024 * 1024) {
+        @rename($logFile, $logFile . '.old');
+    }
+
     $line = sprintf('[%s] [%s] %s' . PHP_EOL, date('Y-m-d H:i:s'), strtoupper($level), $message);
     file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
 }
@@ -28,20 +34,29 @@ $log = fn(string $level, string $msg) => log_msg($level, $msg, $logFile);
 
 // ---------------------------------------------------------------------------
 // Lock file — prevent overlapping cron runs
+//
+// A10:2025 — uses fopen('c') + flock(LOCK_EX|LOCK_NB) for atomic locking.
+// This eliminates the TOCTOU race in the old file_exists()+touch() approach:
+//   - fopen('c') creates or opens the file in a single syscall
+//   - flock(LOCK_NB) returns false immediately if another process holds it
+//   - The OS releases the lock automatically if the process dies, so stale
+//     locks are impossible without any timeout heuristic.
 // ---------------------------------------------------------------------------
 
-$lockFile    = sys_get_temp_dir() . '/ctftimeparser.lock';
-$lockTimeout = 3600; // 1 hour — if older than this, stale lock
+$lockFile   = sys_get_temp_dir() . '/ctftimeparser.lock';
+$lockHandle = fopen($lockFile, 'c');
 
-if (file_exists($lockFile) && (time() - (int) filemtime($lockFile)) < $lockTimeout) {
+if ($lockHandle === false || !flock($lockHandle, LOCK_EX | LOCK_NB)) {
     $log('warn', 'Another instance is already running. Exiting.');
+    if (is_resource($lockHandle)) {
+        fclose($lockHandle);
+    }
     exit(0);
 }
 
-if (file_put_contents($lockFile, (string) getmypid(), LOCK_EX) === false) {
-    $log('error', 'Could not create lock file. Exiting.');
-    exit(1);
-}
+ftruncate($lockHandle, 0);
+fwrite($lockHandle, (string) getmypid());
+fflush($lockHandle);
 
 // ---------------------------------------------------------------------------
 // Main
@@ -84,13 +99,17 @@ try {
     // -----------------------------------------------------------------------
 
     $pending = $db->getBufferIds();
-    $log('info', sprintf('%d new event(s) to process.', count($pending)));
+    $total   = count($pending);
+    $log('info', sprintf('%d new event(s) to process.', $total));
 
     $saved   = 0;
     $skipped = 0;
     $unsafe  = 0;
 
-    foreach ($pending as $eventId) {
+    // A10:2025 — index-based last-element check replaces next($pending).
+    // next() manipulates the internal array pointer but foreach uses its own
+    // independent iterator, so the old check was unreliable.
+    foreach ($pending as $i => $eventId) {
         $log('info', sprintf('Fetching details for event #%d ...', $eventId));
 
         $raw = $client->fetchEventDetail($eventId);
@@ -136,7 +155,7 @@ try {
         ));
 
         // Pause between requests — be polite to CTFTime
-        if ($cfg['sleep_between_requests'] > 0 && next($pending) !== false) {
+        if ($cfg['sleep_between_requests'] > 0 && $i < $total - 1) {
             sleep($cfg['sleep_between_requests']);
         }
     }
@@ -155,9 +174,12 @@ try {
     $log('error', 'Unexpected error: ' . $e->getMessage());
     $exitCode = 1;
 } finally {
-    // Always release the lock
-    if (file_exists($lockFile)) {
-        unlink($lockFile);
+    // Release the lock. flock() is released by the OS on process death,
+    // so no stale lock can persist even if the script crashes.
+    if (isset($lockHandle) && is_resource($lockHandle)) {
+        flock($lockHandle, LOCK_UN);
+        fclose($lockHandle);
+        @unlink($lockFile);
     }
 }
 

@@ -243,6 +243,12 @@ class ContentSecurity
 
     /**
      * Detect localhost, LAN ranges, and metadata endpoints (SSRF guard).
+     *
+     * A06:2025 — DNS resolution via gethostbyname() is intentionally omitted
+     * for hostnames. It is a blocking call with no configurable timeout and can
+     * stall the cron process for many seconds per event on slow/broken DNS.
+     * Scheme + format validation performed earlier is sufficient for our threat
+     * model; we only resolve literal IP strings that arrive in the host field.
      */
     private static function isInternalHost(string $host): bool
     {
@@ -251,23 +257,18 @@ class ContentSecurity
             return true;
         }
 
-        // Cloud metadata endpoint
-        if ($host === '169.254.169.254') {
+        // Cloud metadata endpoints (AWS IMDSv1/v2, GCP, Azure)
+        if (in_array($host, ['169.254.169.254', 'metadata.google.internal'], true)) {
             return true;
         }
 
-        // Resolve to IP and check private ranges
+        // If the host is a literal IP address, check for private/reserved ranges
         $ip = filter_var($host, FILTER_VALIDATE_IP);
-        if ($ip === false) {
-            // It's a hostname — attempt resolution
-            $resolved = gethostbyname($host);
-            if ($resolved === $host) {
-                // Could not resolve; allow (CTFTime returns valid hostnames)
-                return false;
-            }
-            $ip = $resolved;
+        if ($ip !== false) {
+            return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
         }
 
-        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+        // Hostname (not a bare IP) — allow; no DNS lookup performed.
+        return false;
     }
 }

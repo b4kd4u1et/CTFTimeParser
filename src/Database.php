@@ -24,8 +24,12 @@ class Database
     }
 
     /**
-     * Insert new event IDs into parser_buffer.
-     * Uses INSERT IGNORE so duplicates within the same run are silently skipped.
+     * Insert new event IDs into parser_buffer in a single batch query.
+     * Uses INSERT IGNORE so duplicates are silently skipped.
+     *
+     * A single multi-row INSERT avoids N separate round-trips to the database.
+     * Placeholders are generated from count($ids) — not from user input — and
+     * all values are cast to int before binding, so there is no injection surface.
      *
      * @param int[] $ids
      */
@@ -35,13 +39,11 @@ class Database
             return;
         }
 
+        $placeholders = implode(',', array_fill(0, count($ids), '(?)'));
         $stmt = $this->pdo->prepare(
-            'INSERT IGNORE INTO `parser_buffer` (`event_id`) VALUES (?)'
+            "INSERT IGNORE INTO `parser_buffer` (`event_id`) VALUES {$placeholders}"
         );
-
-        foreach ($ids as $id) {
-            $stmt->execute([(int) $id]);
-        }
+        $stmt->execute(array_map('intval', $ids));
     }
 
     /**

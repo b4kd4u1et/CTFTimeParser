@@ -4,9 +4,6 @@
 # Logs
 /logs/*.log
 
-# Lock file
-ctftimeparser.lock
-
 # Dependencies (if Composer is added later)
 /vendor/
 

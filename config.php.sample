@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 // Copy this file to config.php and fill in your values.
 // config.php is listed in .gitignore and must never be committed.
+//
+// WARNING (A02:2025 — Security Misconfiguration):
+// Never use root with an empty password in production.
+// Create a dedicated MySQL user with the minimum required privileges:
+//   CREATE USER 'ctfparser'@'localhost' IDENTIFIED BY 'strong_password';
+//   GRANT SELECT, INSERT, UPDATE, DELETE ON ctftimeparser.* TO 'ctfparser'@'localhost';
 
 return [
     'db' => [
