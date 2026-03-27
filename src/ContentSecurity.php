@@ -14,16 +14,6 @@ class ContentSecurity
     // Allowed URL schemes
     private const ALLOWED_SCHEMES = ['http', 'https'];
 
-    // Allowed domains for event website URLs
-    private const ALLOWED_URL_DOMAINS = [
-        'ctftime.org',
-        'ctfd.io',
-        'github.com',
-        'gitlab.com',
-        'google.com',
-        // Add more as needed
-    ];
-
     // SSTI pattern fragments to reject
     private const SSTI_PATTERNS = [
         '/\{\{.*?\}\}/s',    // Jinja2 / Twig
@@ -92,7 +82,7 @@ class ContentSecurity
 
         // Numeric fields
         $weight = isset($raw['weight']) && is_numeric($raw['weight'])
-            ? (float) $raw['weight']
+            ? round((float) $raw['weight'], 5)
             : null;
 
         $onsite = isset($raw['onsite']) ? (bool) $raw['onsite'] : false;
@@ -130,9 +120,6 @@ class ContentSecurity
 
         // Strip all HTML tags (XSS)
         $value = strip_tags($value);
-
-        // Encode remaining special HTML characters
-        $value = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 
         // Collapse excessive whitespace
         $value = trim(preg_replace('/\s{3,}/', '  ', $value) ?? $value);
@@ -218,7 +205,7 @@ class ContentSecurity
             return null;
         }
 
-        return date('Y-m-d H:i:s', $ts);
+        return gmdate('Y-m-d H:i:s', $ts);
     }
 
     /**

@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS `ctf_events` (
     `start_time`  DATETIME      DEFAULT NULL,
     `finish_time` DATETIME      DEFAULT NULL,
     `format`      VARCHAR(64)   DEFAULT NULL,
-    `weight`      FLOAT         DEFAULT NULL,
+    `weight`      DECIMAL(8,5)  DEFAULT NULL,
     `onsite`      TINYINT(1)    NOT NULL DEFAULT 0,
     `location`    VARCHAR(255)  DEFAULT NULL,
     `description` TEXT          DEFAULT NULL,

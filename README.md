@@ -370,8 +370,10 @@ Telegram-бот (внешний)
 - Two-stage buffer pipeline — deduplication before fetching details
 - Content security checks: XSS, SSTI, SQLi, SSRF, suspicious URLs
 - Unsafe events are stored with `is_safe=0` and held back from publication
+- **Weekly digest** every Monday at 07:00 — compact list of all events for the next 14 days
+- **Daily updates** every day at 07:00 — individual full-detail posts for new events
 - No external dependencies — pure PHP 8 + PDO + cURL
-- Atomic lock file prevents overlapping cron runs
+- Atomic lock files prevent overlapping cron runs
 - File-based logging with automatic rotation at 5 MB
 
 ### Requirements
@@ -404,14 +406,19 @@ mysql -u ctfparser -p ctftimeparser < schema.sql
 cp config.php.sample config.php
 ```
 
-Edit `config.php`:
+Fill in `config.php` with your database credentials and Telegram settings:
 
 ```php
 'db' => [
-    'host' => 'localhost',
-    'name' => 'ctftimeparser',
     'user' => 'ctfparser',
     'pass' => 'strong_password',
+    ...
+],
+'telegram' => [
+    'bot_token' => '123456:ABC-your-token',
+    'chat_id'   => '-1001234567890',
+    'thread_id' => 42,
+    ...
 ],
 ```
 
@@ -424,24 +431,31 @@ php parser.php
 #### 4. Schedule via cron (every 6 hours)
 
 ```
+# Fetch new events from CTFTime every 6 hours
 0 */6 * * * /usr/bin/php /path/to/parser.php
+
+# Publish to Telegram every day at 07:00
+0 7   * * * /usr/bin/php /path/to/publisher.php
 ```
 
 ### Project Structure
 
 ```
 CTFTimeParser/
-├── parser.php                 # Entry point (run via cron)
-├── config.php                 # Database and parser settings (gitignored)
+├── parser.php                 # CTFTime → MySQL pipeline (run via cron)
+├── publisher.php              # MySQL → Telegram publisher (run via cron)
+├── config.php                 # Credentials and settings (gitignored)
 ├── config.php.sample          # Configuration template
 ├── schema.sql                 # Database schema
 ├── src/
 │   ├── CtftimeClient.php      # CTFTime API client (cURL)
 │   ├── ContentSecurity.php    # Input sanitization and threat detection
 │   ├── Database.php           # PDO wrapper, all queries
-│   └── Formatter.php          # Telegram HTML message formatter
+│   ├── Formatter.php          # Telegram HTML message formatter
+│   └── TelegramBot.php        # Telegram Bot API client (cURL)
 └── logs/
-    └── parser.log             # Runtime log (auto-created, rotates at 5 MB)
+    ├── parser.log             # Parser log (auto-created, rotates at 5 MB)
+    └── publisher.log          # Publisher log (auto-created, rotates at 5 MB)
 ```
 
 ### Overall Algorithm
@@ -528,7 +542,6 @@ Telegram bot (external)
 | `created_at` | DATETIME | Row creation time |
 
 Events with `is_safe = 0` are stored but **not published** until manually reviewed.
-Events with `posted_at IS NULL` are pending publication.
 
 ### Security
 
@@ -548,14 +561,22 @@ Audited against **[OWASP Top 10:2025](https://owasp.org/Top10/2025/)**.
 
 ### Logging
 
+**`logs/parser.log`**
 ```
 [2026-03-26 12:00:00] [INFO] Fetching event list [2026-03-26 – 2026-04-02]
 [2026-03-26 12:00:01] [INFO] Received 14 event IDs from API.
 [2026-03-26 12:00:01] [INFO] Buffer cleaned (removed already-known events).
 [2026-03-26 12:00:01] [INFO] 3 new event(s) to process.
-[2026-03-26 12:00:02] [INFO] Event #2345 saved: "CTF Example 2026" (safe=1)
-[2026-03-26 12:00:03] [WARN] Event #2346: flagged as unsafe. Stored with is_safe=0.
-[2026-03-26 12:00:04] [INFO] Done. Saved: 3 | Unsafe (stored): 1 | Skipped: 0
+[2026-03-26 12:00:02] [INFO] Event #2345 saved: "SomeCTF 2026" (safe=1)
+[2026-03-26 12:00:04] [INFO] Done. Saved: 3 | Unsafe (stored): 0 | Skipped: 0
+```
+
+**`logs/publisher.log`**
+```
+[2026-03-30 07:00:00] [INFO] Daily update: 3 event(s) to publish.
+[2026-03-30 07:00:01] [INFO] Published event #2345: "SomeCTF 2026"
+[2026-03-30 07:00:03] [INFO] Published event #2346: "AnotherCTF 2026"
+[2026-03-30 07:00:05] [INFO] Daily update done. Sent: 3 | Failed: 0
 ```
 
 ### Troubleshooting
