@@ -6,7 +6,7 @@
 
 ## Қазақша
 
-**CTFTimeParser** — [CTFTime](https://ctftime.org/) сайтынан алдағы CTF жарыстары туралы хабарландыруларды жинап, оларды Telegram супертопқа жариялау үшін MySQL дерекқорына сақтайтын жеңіл PHP + MySQL парсері.
+**CTFTimeParser** — [CTFTime](https://ctftime.org/) сайтынан алдағы CTF жарыстары туралы хабарландыруларды жинап, MySQL дерекқорына сақтайтын және Telegram супертопқа жариялайтын жеңіл PHP + MySQL құралы.
 
 ### Мүмкіндіктер
 
@@ -14,8 +14,10 @@
 - Екі сатылы буфер: деректер қайталанбауы үшін алдын ала сүзгіден өтеді
 - XSS, SSTI, SQLi, SSRF және күдікті URL-дерге қарсы мазмұн қауіпсіздігі тексерулері
 - Қауіпті оқиғалар `is_safe=0` белгісімен сақталып, жариялаудан ұсталады
+- **Апталық дайджест** — дүйсенбі сайын 07:00-де келесі 14 күннің барлық оқиғалары
+- **Күнделікті жаңартулар** — жаңа оқиғаларды толық форматта жариялау
 - Сыртқы тәуелділіктер жоқ — таза PHP 8 + PDO + cURL
-- Атомдық блокировка файлы cron-процестерінің қабаттасуын болдырмайды
+- Атомдық блокировка файлдары cron-процестерінің қабаттасуын болдырмайды
 - Файлдық логтау, 5 МБ-тан асқанда автоматты ротация
 
 ### Талаптар
@@ -41,50 +43,64 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ctftimeparser.* TO 'ctfparser'@'localhos
 mysql -u ctfparser -p ctftimeparser < schema.sql
 ```
 
-#### 2. Конфигурация
+#### 2. Telegram боты жасау
+
+1. Telegram-да [@BotFather](https://t.me/BotFather) ашып, `/newbot` жіберіңіз
+2. Алынған **бот токенін** көшіріңіз
+3. Ботты супертопқа *хабар жариялау* рұқсатымен **әкімші** ретінде қосыңыз
+4. Топ параметрлерінде **Topics** қосып, хабарландырулар тақырыбын жасаңыз
+5. Сол тақырыптан кез келген хабарды [@JsonDumpBot](https://t.me/JsonDumpBot)-қа жіберіңіз — `message_thread_id` мәнін табыңыз
+
+#### 3. Конфигурация
 
 ```bash
 cp config.php.sample config.php
 ```
 
-`config.php` файлын өңдеңіз:
+`config.php` файлын толтырыңыз:
 
 ```php
 'db' => [
-    'host' => 'localhost',
-    'name' => 'ctftimeparser',
     'user' => 'ctfparser',
     'pass' => 'strong_password',
+    ...
+],
+'telegram' => [
+    'bot_token' => '123456:ABC-your-token',
+    'chat_id'   => '-1001234567890',
+    'thread_id' => 42,
+    ...
 ],
 ```
 
-#### 3. Қолмен іске қосу
-
-```bash
-php parser.php
-```
-
-#### 4. Cron арқылы жоспарлау (әр 6 сағат сайын)
+#### 4. Cron арқылы жоспарлау
 
 ```
+# CTFTime-дан оқиғаларды әр 6 сағат сайын жинау
 0 */6 * * * /usr/bin/php /path/to/parser.php
+
+# Telegram-ға күн сайын 07:00-де жариялау
+0 7   * * * /usr/bin/php /path/to/publisher.php
 ```
 
 ### Жоба құрылымы
 
 ```
 CTFTimeParser/
-├── parser.php                 # Кіру нүктесі (cron арқылы іске қосылады)
-├── config.php                 # Дерекқор және парсер параметрлері (gitignored)
+├── parser.php                 # CTFTime → MySQL (cron арқылы іске қосылады)
+├── publisher.php              # MySQL → Telegram (cron арқылы іске қосылады)
+├── config.php                 # Баптаулар мен кіру деректері (gitignored)
 ├── config.php.sample          # Конфигурация үлгісі
 ├── schema.sql                 # Дерекқор схемасы
 ├── src/
 │   ├── CtftimeClient.php      # CTFTime API клиенті (cURL)
 │   ├── ContentSecurity.php    # Мазмұн қауіпсіздігі тексерулері
 │   ├── Database.php           # PDO орауышы, барлық сұраулар
-│   └── Formatter.php          # Telegram HTML хабар форматтаушы
+│   ├── Formatter.php          # Telegram HTML хабар форматтаушы
+│   └── TelegramBot.php        # Telegram Bot API клиенті (cURL)
 └── logs/
-    └── parser.log             # Жұмыс логы (5 МБ кезінде ротация)
+    ├── parser.log             # Парсер логы (5 МБ кезінде ротация)
+    └── publisher.log          # Паблишер логы (5 МБ кезінде ротация)
 ```
 
 ### Жалпы алгоритм
@@ -131,31 +147,78 @@ parser.php іске қосылады
     │
     └─► Блокировка босатылады (бұзылу болса — OS автоматты босатады)
 
-Telegram боты (сыртқы)
+publisher.php (cron, күн сайын 07:00)
     │
-    └─► ctf_events WHERE is_safe=1 AND posted_at IS NULL
-            │
-            └─► Formatter::event() → Telegram HTML хабары
-                    Тақырып, күндер, формат/салмақ,
-                    орналасу (онлайн/очно), сипаттама үзіндісі, сілтемелер
-                    → Telegram-ға жіберу → posted_at белгісі қойылады
+    ├─► Блокировка тексерісі (/tmp/ctftimepublisher.lock)
+    │
+    ├─► Инициализация: config.php → Database + TelegramBot
+    │
+    ├─► Дүйсенбі → Апталық дайджест
+    │       Database::getUpcomingEvents(14)
+    │       Formatter::digest() → 1..N бөлік (≤4096 таңба)
+    │       TelegramBot::sendMessage() → барлық бөліктер жіберіледі
+    │       posted_at БЕЛГІЛЕНБЕЙДІ (оқиғалар күнделікті жаңартуда да шығады)
+    │
+    └─► Сейсенбі–Жексенбі → Күнделікті жаңартулар
+            ctf_events WHERE is_safe=1 AND posted_at IS NULL
+            Formatter::event() → толық Telegram HTML хабары
+            TelegramBot::sendMessage() → жіберу → posted_at = NOW()
+            Сәтсіз жіберулер → келесі іске қосуда қайталанады
+```
+
+**Дүйсенбілік дайджест форматы:**
+```
+📋 CTF Events — next 14 days
+26 Mar – 09 Apr 2026
+
+• SomeCTF 2026
+  📅 28 Mar — 30 Mar | Jeopardy | Online
+```
+
+**Күнделікті жаңарту форматы:**
+```
+🚩 SomeCTF 2026
+
+📅 28 Mar — 30 Mar 2026 (UTC)
+🏆 Jeopardy | Weight: 25.50
+🌐 Online
+
+Оқиға сипаттамасы…
+
+🔗 Event site  ·  CTFTime
 ```
 
 ### Ақаулықтарды жою
 
-| Қате | Шешім |
-|------|-------|
-| `Permission denied` (logs/) | `chmod 755 logs/` |
-| `PDO connection failed` | `config.php` деректерін тексеріңіз, пайдаланушы артықшылықтарын растаңыз |
-| `Could not create lock file` | `/tmp` каталогының жазу рұқсатын тексеріңіз |
-| Оқиғалар пайда болмайды | API-дан бос жауап қалыпты (7 күнде оқиға жоқ). Логтарды тексеріңіз |
-| `Another instance is already running` | Алдыңғы процесс аяқталғанша күтіңіз немесе `php parser.php` процесі жоқ екенін тексеріңіз |
+**`logs/` каталогына жазу кезінде `Permission denied`**
+```bash
+chmod 755 logs/
+```
+
+**`PDO connection failed` / `Access denied for user`**
+- `config.php` деректерін тексеріңіз
+- Пайдаланушы артықшылықтарын растаңыз: `SHOW GRANTS FOR 'ctfparser'@'localhost';`
+
+**`Could not create lock file`**
+- `/tmp` каталогының PHP процесіне жазу рұқсаты бар екенін тексеріңіз
+
+**Парсер іске қосылғаннан кейін оқиғалар пайда болмайды**
+- CTFTime API келесі 14 күнде оқиға жоқ болса бос жауап қайтарады — бұл қалыпты
+- `logs/parser.log` файлындағы API қателерін тексеріңіз
+
+**Publisher ештеңе жібермейді**
+- Алдымен парсерді іске қосыңыз (`ctf_events` кестесін толтыру үшін)
+- `is_safe = 1` және `posted_at IS NULL` бар жолдардың бар екенін тексеріңіз
+- `config.php`-тегі бот токені мен chat/thread ID дұрыстығын тексеріңіз
+
+**`Another instance is already running`**
+- `flock()` процесс аяқталғанда автоматты босатылады — ағымдағы іске қосу аяқталғанша күтіңіз немесе `php parser.php` / `php publisher.php` процесі жоқ екенін тексеріңіз
 
 ---
 
 ## Русский
 
-**CTFTimeParser** — лёгкий PHP + MySQL парсер, который собирает объявления о предстоящих CTF-соревнованиях с [CTFTime](https://ctftime.org/) и сохраняет их в базу данных для публикации в Telegram-супергруппе.
+**CTFTimeParser** — лёгкий PHP + MySQL инструмент, который собирает объявления о предстоящих CTF-соревнованиях с [CTFTime](https://ctftime.org/), сохраняет их в базу данных и публикует в Telegram-супергруппе.
 
 ### Возможности
 
@@ -163,8 +226,10 @@ Telegram боты (сыртқы)
 - Двухэтапный буфер: дедупликация перед загрузкой деталей
 - Проверки безопасности контента: XSS, SSTI, SQLi, SSRF, подозрительные URL
 - Небезопасные события сохраняются с флагом `is_safe=0` и не публикуются
+- **Еженедельный дайджест** — каждый понедельник в 07:00, список всех событий на 14 дней
+- **Ежедневные обновления** — каждый день в 07:00, полный пост для каждого нового события
 - Без внешних зависимостей — чистый PHP 8 + PDO + cURL
-- Атомарная блокировка предотвращает параллельный запуск cron-задач
+- Атомарные блокировки предотвращают параллельный запуск cron-задач
 - Файловое логирование с автоматической ротацией при 5 МБ
 
 ### Требования
@@ -191,50 +256,64 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ctftimeparser.* TO 'ctfparser'@'localhos
 mysql -u ctfparser -p ctftimeparser < schema.sql
 ```
 
-#### 2. Конфигурация
+#### 2. Создание Telegram-бота
+
+1. Откройте [@BotFather](https://t.me/BotFather) в Telegram и отправьте `/newbot`
+2. Скопируйте полученный **токен бота**
+3. Добавьте бота в супергруппу как **администратора** с правом публикации сообщений
+4. Включите **Topics** в настройках группы, создайте тему для анонсов
+5. Перешлите любое сообщение из этой темы боту [@JsonDumpBot](https://t.me/JsonDumpBot) — найдите значение `message_thread_id`
+
+#### 3. Конфигурация
 
 ```bash
 cp config.php.sample config.php
 ```
 
-Отредактируйте `config.php`:
+Заполните `config.php`:
 
 ```php
 'db' => [
-    'host' => 'localhost',
-    'name' => 'ctftimeparser',
     'user' => 'ctfparser',
     'pass' => 'strong_password',
+    ...
+],
+'telegram' => [
+    'bot_token' => '123456:ABC-your-token',
+    'chat_id'   => '-1001234567890',
+    'thread_id' => 42,
+    ...
 ],
 ```
 
-#### 3. Ручной запуск
-
-```bash
-php parser.php
-```
-
-#### 4. Запуск через cron (каждые 6 часов)
+#### 4. Запуск через cron
 
 ```
+# Собирать события с CTFTime каждые 6 часов
 0 */6 * * * /usr/bin/php /path/to/parser.php
+
+# Публиковать в Telegram каждый день в 07:00
+0 7   * * * /usr/bin/php /path/to/publisher.php
 ```
 
 ### Структура проекта
 
 ```
 CTFTimeParser/
-├── parser.php                 # Точка входа (запускается через cron)
-├── config.php                 # Настройки БД и парсера (gitignored)
+├── parser.php                 # CTFTime → MySQL (запускается через cron)
+├── publisher.php              # MySQL → Telegram (запускается через cron)
+├── config.php                 # Настройки и учётные данные (gitignored)
 ├── config.php.sample          # Шаблон конфигурации
 ├── schema.sql                 # Схема базы данных
 ├── src/
 │   ├── CtftimeClient.php      # Клиент CTFTime API (cURL)
 │   ├── ContentSecurity.php    # Проверки безопасности контента
 │   ├── Database.php           # Обёртка PDO, все запросы
-│   └── Formatter.php          # Форматтер Telegram HTML-сообщений
+│   ├── Formatter.php          # Форматтер Telegram HTML-сообщений
+│   └── TelegramBot.php        # Клиент Telegram Bot API (cURL)
 └── logs/
-    └── parser.log             # Лог работы (ротация при 5 МБ)
+    ├── parser.log             # Лог парсера (ротация при 5 МБ)
+    └── publisher.log          # Лог паблишера (ротация при 5 МБ)
 ```
 
 ### Общий алгоритм
@@ -281,14 +360,45 @@ parser.php запускается
     │
     └─► Блокировка снимается (при краше — OS снимает автоматически)
 
-Telegram-бот (внешний)
+publisher.php (cron, каждый день в 07:00)
     │
-    └─► ctf_events WHERE is_safe=1 AND posted_at IS NULL
-            │
-            └─► Formatter::event() → HTML-сообщение для Telegram
-                    Название, даты, формат/вес,
-                    место проведения (онлайн/очно), превью описания, ссылки
-                    → отправка в Telegram → проставляется posted_at
+    ├─► Проверка блокировки (/tmp/ctftimepublisher.lock)
+    │
+    ├─► Инициализация: config.php → Database + TelegramBot
+    │
+    ├─► Понедельник → Еженедельный дайджест
+    │       Database::getUpcomingEvents(14)
+    │       Formatter::digest() → 1..N частей (≤4096 символов каждая)
+    │       TelegramBot::sendMessage() → отправка всех частей
+    │       posted_at НЕ устанавливается (события появятся в ежедневных обновлениях)
+    │
+    └─► Вт–Вс → Ежедневные обновления
+            ctf_events WHERE is_safe=1 AND posted_at IS NULL
+            Formatter::event() → полное HTML-сообщение для Telegram
+            TelegramBot::sendMessage() → отправка → posted_at = NOW()
+            Неудачные отправки → остаются неопубликованными, повторяются при следующем запуске
+```
+
+**Формат дайджеста (понедельник):**
+```
+📋 CTF Events — next 14 days
+26 Mar – 09 Apr 2026
+
+• SomeCTF 2026
+  📅 28 Mar — 30 Mar | Jeopardy | Online
+```
+
+**Формат ежедневного обновления:**
+```
+🚩 SomeCTF 2026
+
+📅 28 Mar — 30 Mar 2026 (UTC)
+🏆 Jeopardy | Weight: 25.50
+🌐 Online
+
+Краткое описание события…
+
+🔗 Event site  ·  CTFTime
 ```
 
 ### Схема базы данных
@@ -311,7 +421,7 @@ Telegram-бот (внешний)
 | `start_time` | DATETIME | Начало (UTC) |
 | `finish_time` | DATETIME | Конец (UTC) |
 | `format` | VARCHAR(64) | Jeopardy / Attack-Defense / и др. |
-| `weight` | FLOAT | Рейтинговый вес CTFTime |
+| `weight` | DECIMAL(8,5) | Рейтинговый вес CTFTime |
 | `onsite` | TINYINT(1) | 1 = очное мероприятие |
 | `location` | VARCHAR(255) | Город/страна для очных событий |
 | `description` | TEXT | Описание события |
@@ -325,38 +435,64 @@ Telegram-бот (внешний)
 Аудит по **[OWASP Top 10:2025](https://owasp.org/Top10/2025/)**.
 
 | OWASP | Угроза | Защита |
-|-------|--------|--------|
-| A01 | SSRF | `CURLOPT_FOLLOWLOCATION=false`; только HTTPS к `ctftime.org`; проверка приватных IP-диапазонов |
-| A02 | Security Misconfiguration | Выделенный пользователь БД с минимальными привилегиями; `config.php` исключён из VCS |
-| A05 | SQLi | PDO prepared statements повсюду; никакой интерполяции пользовательских данных |
-| A05 | SSTI | Regex-детекция паттернов `{{ }}`, `{% %}`, `<% %>`, `${}`, `#{}` |
-| A05 | XSS | `strip_tags()` + `htmlspecialchars()` на всех строковых полях перед сохранением |
-| A06 | Insecure Design | Белый список схем URL (`http`/`https`); ограничения длины полей |
+|---|---|---|
+| A01 | Broken Access Control / SSRF | `CURLOPT_FOLLOWLOCATION=false` во всех cURL-запросах; только HTTPS; URL API захардкожен; учётные данные в URL отклоняются; проверка приватных IP-диапазонов |
+| A02 | Security Misconfiguration | Выделенный пользователь БД с минимальными привилегиями; `config.php` исключён из VCS; токен бота не пишется в логи |
+| A05 | Injection — SQLi | PDO prepared statements повсюду; никакой интерполяции пользовательских данных |
+| A05 | Injection — SSTI | Regex-детекция паттернов `{{ }}`, `{% %}`, `<% %>`, `${}`, `#{}` |
+| A05 | Injection — XSS | `strip_tags()` + `htmlspecialchars()` на всех строковых полях до сохранения и вывода |
+| A06 | Insecure Design | Нет блокирующего DNS; белый список схем URL (`http`/`https`); ограничения длины полей |
 | A08 | Data Integrity | ID события берётся из пути запроса, а не из тела ответа; лимит глубины JSON |
-| A09 | Security Logging | Структурированный лог с уровнем + временной меткой; ротация при 5 МБ |
-| A10 | Race Condition | Атомарная блокировка `fopen('c')+flock(LOCK_EX\|LOCK_NB)`; OS освобождает блокировку при краше |
+| A09 | Security Logging Failures | Структурированный лог с уровнем + временной меткой; ротация при 5 МБ; отдельные логи для каждого компонента |
+| A10 | Mishandling of Exceptional Conditions | Атомарная блокировка `fopen('c')+flock(LOCK_EX\|LOCK_NB)` — нет гонки TOCTOU; OS снимает блокировку при краше; обработка Telegram 429 с `retry_after` |
 
 ### Логирование
 
+Каждый компонент пишет в свой лог-файл, ротация при 5 МБ:
+
+**`logs/parser.log`**
 ```
-[2026-03-26 12:00:00] [INFO] Fetching event list [2026-03-26 – 2026-04-02]
+[2026-03-26 12:00:00] [INFO] Fetching event list [2026-03-26 – 2026-04-09]
 [2026-03-26 12:00:01] [INFO] Received 14 event IDs from API.
 [2026-03-26 12:00:01] [INFO] Buffer cleaned (removed already-known events).
 [2026-03-26 12:00:01] [INFO] 3 new event(s) to process.
-[2026-03-26 12:00:02] [INFO] Event #2345 saved: "CTF Example 2026" (safe=1)
-[2026-03-26 12:00:03] [WARN] Event #2346: flagged as unsafe. Stored with is_safe=0.
-[2026-03-26 12:00:04] [INFO] Done. Saved: 3 | Unsafe (stored): 1 | Skipped: 0
+[2026-03-26 12:00:02] [INFO] Event #2345 saved: "SomeCTF 2026" (safe=1)
+[2026-03-26 12:00:04] [INFO] Done. Saved: 3 | Unsafe (stored): 0 | Skipped: 0
+```
+
+**`logs/publisher.log`**
+```
+[2026-03-30 07:00:00] [INFO] Daily update: 3 event(s) to publish.
+[2026-03-30 07:00:01] [INFO] Published event #2345: "SomeCTF 2026"
+[2026-03-30 07:00:03] [INFO] Published event #2346: "AnotherCTF 2026"
+[2026-03-30 07:00:05] [INFO] Daily update done. Sent: 3 | Failed: 0
 ```
 
 ### Устранение неполадок
 
-| Ошибка | Решение |
-|--------|---------|
-| `Permission denied` (logs/) | `chmod 755 logs/` |
-| `PDO connection failed` | Проверьте `config.php`, убедитесь в правах пользователя БД |
-| `Could not create lock file` | Проверьте права на запись в `/tmp` |
-| События не появляются | Пустой ответ API — норма (нет событий на 7 дней). Проверьте логи |
-| `Another instance is already running` | Дождитесь завершения предыдущего процесса или убедитесь, что `php parser.php` не запущен |
+**`Permission denied` при записи в `logs/`**
+```bash
+chmod 755 logs/
+```
+
+**`PDO connection failed` / `Access denied for user`**
+- Проверьте учётные данные в `config.php`
+- Убедитесь в правах пользователя: `SHOW GRANTS FOR 'ctfparser'@'localhost';`
+
+**`Could not create lock file`**
+- Проверьте права на запись в `/tmp` для PHP-процесса
+
+**После запуска парсера события не появляются**
+- CTFTime API возвращает пустой список, если нет событий на 14 дней — это нормально
+- Проверьте `logs/parser.log` на наличие ошибок API
+
+**Publisher ничего не отправляет**
+- Сначала запустите парсер, чтобы заполнить `ctf_events`
+- Убедитесь, что есть строки с `is_safe = 1` и `posted_at IS NULL`
+- Проверьте токен бота и chat/thread IDs в `config.php`
+
+**`Another instance is already running`**
+- `flock()` снимается автоматически при завершении процесса — дождитесь окончания текущего запуска или убедитесь, что `php parser.php` / `php publisher.php` не запущен
 
 ---
 
@@ -565,7 +701,7 @@ Brief description…
 | `start_time` | DATETIME | Start (UTC) |
 | `finish_time` | DATETIME | End (UTC) |
 | `format` | VARCHAR(64) | Jeopardy / Attack-Defense / etc. |
-| `weight` | FLOAT | CTFTime rating weight |
+| `weight` | DECIMAL(8,5) | CTFTime rating weight |
 | `onsite` | TINYINT(1) | 1 = on-site event |
 | `location` | VARCHAR(255) | City/country for on-site events |
 | `description` | TEXT | Event description |
