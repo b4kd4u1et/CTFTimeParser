@@ -400,7 +400,15 @@ Apply the schema:
 mysql -u ctfparser -p ctftimeparser < schema.sql
 ```
 
-#### 2. Configure
+### 2. Create a Telegram bot
+
+1. Open [@BotFather](https://t.me/BotFather) in Telegram and send `/newbot`
+2. Copy the **bot token** you receive
+3. Add the bot to your supergroup as an **administrator** with *Post Messages* permission
+4. Enable **Topics** in the group settings, then create the announcements topic
+5. Forward any message from that topic to [@JsonDumpBot](https://t.me/JsonDumpBot) — find `message_thread_id` in the output
+
+### 3. Configure
 
 ```bash
 cp config.php.sample config.php
@@ -422,13 +430,7 @@ Fill in `config.php` with your database credentials and Telegram settings:
 ],
 ```
 
-#### 3. Run manually
-
-```bash
-php parser.php
-```
-
-#### 4. Schedule via cron (every 6 hours)
+### 4. Schedule via cron
 
 ```
 # Fetch new events from CTFTime every 6 hours
@@ -502,14 +504,45 @@ parser.php runs
     │
     └─► Lock released (OS releases automatically on crash)
 
-Telegram bot (external)
+publisher.php (cron daily at 07:00)
     │
-    └─► ctf_events WHERE is_safe=1 AND posted_at IS NULL
-            │
-            └─► Formatter::event() → Telegram HTML message
-                    Title, dates, format/weight,
-                    venue (online/on-site), description preview, links
-                    → send to Telegram → posted_at is set
+    ├─► Lock check (/tmp/ctftimepublisher.lock)
+    │
+    ├─► Bootstrap: config.php → Database + TelegramBot
+    │
+    ├─► Monday → Weekly digest
+    │       Database::getUpcomingEvents(14)
+    │       Formatter::digest() → 1..N message parts (≤4096 chars each)
+    │       TelegramBot::sendMessage() → send all parts
+    │       posted_at is NOT set (events still appear in daily updates)
+    │
+    └─► Tue–Sun → Daily updates
+            ctf_events WHERE is_safe=1 AND posted_at IS NULL
+            Formatter::event() → full Telegram HTML message
+            TelegramBot::sendMessage() → send → posted_at = NOW()
+            Failed sends → left unpublished, retried next run
+```
+
+**Monday digest format:**
+```
+📋 CTF Events — next 14 days
+26 Mar – 09 Apr 2026
+
+• SomeCTF 2026
+  📅 28 Mar — 30 Mar | Jeopardy | Online
+```
+
+**Daily update format:**
+```
+🚩 SomeCTF 2026
+
+📅 28 Mar — 30 Mar 2026 (UTC)
+🏆 Jeopardy | Weight: 25.50
+🌐 Online
+
+Brief description…
+
+🔗 Event site  ·  CTFTime
 ```
 
 ### Database Schema
@@ -548,18 +581,22 @@ Events with `is_safe = 0` are stored but **not published** until manually review
 Audited against **[OWASP Top 10:2025](https://owasp.org/Top10/2025/)**.
 
 | OWASP | Threat | Defence |
-|-------|--------|---------|
-| A01 | SSRF | `CURLOPT_FOLLOWLOCATION=false`; HTTPS-only to `ctftime.org`; private IP range check |
-| A02 | Security Misconfiguration | Dedicated DB user with minimum privileges; `config.php` excluded from VCS |
-| A05 | SQLi | PDO prepared statements throughout; no string interpolation of user data |
-| A05 | SSTI | Regex detection of `{{ }}`, `{% %}`, `<% %>`, `${}`, `#{}` patterns |
-| A05 | XSS | `strip_tags()` + `htmlspecialchars()` on all string fields before storage |
-| A06 | Insecure Design | URL scheme whitelist (`http`/`https` only); field length limits enforced |
-| A08 | Data Integrity | Event ID taken from request path, not response body; JSON depth limit |
-| A09 | Security Logging | Structured log with level + timestamp; automatic rotation at 5 MB |
-| A10 | Race Condition | Atomic lock via `fopen('c')+flock(LOCK_EX\|LOCK_NB)`; OS releases lock on crash |
+|---|---|---|
+| A01 | Broken Access Control / SSRF | `CURLOPT_FOLLOWLOCATION=false` in all cURL calls; HTTPS-only; API base URL hardcoded; credentials in URL rejected; private IP range check on literal IPs |
+| A02 | Security Misconfiguration | Dedicated DB user with minimum privileges; `config.php` excluded from VCS; bot token never written to logs |
+| A05 | Injection — SQLi | PDO prepared statements throughout; no user-data interpolation; supplementary regex detection in stored content |
+| A05 | Injection — SSTI | Regex detection of `{{ }}`, `{% %}`, `<% %>`, `${}`, `#{}` patterns |
+| A05 | Injection — XSS | `strip_tags()` + `htmlspecialchars()` on all string fields before storage and before output |
+| A06 | Insecure Design | No blocking DNS resolution; URL scheme whitelist (`http`/`https`); field length limits |
+| A08 | Data Integrity | Event ID overridden from request path, not response body; JSON depth limited |
+| A09 | Security Logging Failures | Structured log with level + timestamp; automatic 5 MB rotation; separate logs per component |
+| A10 | Mishandling of Exceptional Conditions | Atomic lock via `fopen('c')+flock(LOCK_EX\|LOCK_NB)` — no TOCTOU race, OS auto-releases on crash; Telegram 429 handled with `retry_after` back-off |
+
+Events that fail any content check are stored with `is_safe=0` and withheld from publication pending manual review.
 
 ### Logging
+
+Each component writes to its own log file, rotated automatically at 5 MB:
 
 **`logs/parser.log`**
 ```
@@ -581,10 +618,26 @@ Audited against **[OWASP Top 10:2025](https://owasp.org/Top10/2025/)**.
 
 ### Troubleshooting
 
-| Error | Fix |
-|-------|-----|
-| `Permission denied` (logs/) | `chmod 755 logs/` |
-| `PDO connection failed` | Verify `config.php` credentials; check user grants |
-| `Could not create lock file` | Ensure `/tmp` is writable by the PHP process user |
-| No events appear | Empty API response is normal if no events in next 7 days. Check logs |
-| `Another instance is already running` | Wait for current run to finish or verify no `php parser.php` process is running |
+**`Permission denied` writing to `logs/`**
+```bash
+chmod 755 logs/
+```
+
+**`PDO connection failed` / `Access denied for user`**
+- Verify `config.php` credentials match your MySQL user
+- Confirm grants: `SHOW GRANTS FOR 'ctfparser'@'localhost';`
+
+**`Could not create lock file`**
+- Check that `/tmp` is writable by the PHP process user
+
+**No events appear after running the parser**
+- CTFTime API returns an empty list if no events are scheduled in the next 14 days — this is normal
+- Check `logs/parser.log` for API errors
+
+**Publisher sends nothing**
+- Run the parser first so `ctf_events` is populated
+- Check that `is_safe = 1` and `posted_at IS NULL` for at least one row
+- Verify the bot token and chat/thread IDs in `config.php`
+
+**`Another instance is already running`**
+- `flock()` releases automatically when the process exits — wait for the current run to finish or verify no `php parser.php` / `php publisher.php` process is running
