@@ -87,13 +87,59 @@ CTFTimeParser/
     └── parser.log             # Жұмыс логы (5 МБ кезінде ротация)
 ```
 
-### Жұмыс принципі
+### Жалпы алгоритм
 
-Әр іске қосылғанда парсер үш қадамды орындайды:
+```
+Cron (әр 6 сағат)
+    │
+    ▼
+parser.php іске қосылады
+    │
+    ├─► Блокировка тексерісі (/tmp/ctftimeparser.lock)
+    │       Басқа процесс жұмыс жасаса → дереу шығу
+    │
+    ├─► Инициализация: config.php → Database (PDO) + CtftimeClient (cURL)
+    │
+    ├─► 1-қадам: ID жинау
+    │       CtftimeClient → CTFTime API (келесі N күн)
+    │       Алынған ID-лар → parser_buffer (INSERT IGNORE)
+    │
+    ├─► 2-қадам: Дедупликация
+    │       ctf_events-те бар ID-ларды parser_buffer-дан жою
+    │
+    ├─► 3-қадам: Деректерді жүктеп сақтау (әр жаңа ID үшін)
+    │       │
+    │       ├─► CtftimeClient → толық оқиға деректері (JSON)
+    │       │
+    │       ├─► ID жолдан алынады (response body-дан емес) — спуфинг қорғанысы
+    │       │
+    │       ├─► ContentSecurity::sanitize()
+    │       │       strip_tags + htmlspecialchars (XSS)
+    │       │       SSTI/SQLi үлгілерін тексеру
+    │       │       URL схемасы + SSRF тексерісі
+    │       │       Өріс ұзындығы шектеулері
+    │       │
+    │       ├─► Санитизация сәтсіз → буферден жою, өткізіп жіберу
+    │       │
+    │       ├─► is_safe=0 → ctf_events-ке сақтау (жарияланбайды)
+    │       │
+    │       ├─► is_safe=1 → ctf_events-ке сақтау (жариялауға дайын)
+    │       │
+    │       └─► Сұраулар арасында 1 секунд үзіліс
+    │
+    ├─► Лог жазылады (5 МБ-тан асса — ротация)
+    │
+    └─► Блокировка босатылады (бұзылу болса — OS автоматты босатады)
 
-1. **ID жинау** — CTFTime API-дан келесі 7 күнгі оқиғалар тізімін алады және барлық ID-ларды `parser_buffer` кестесіне жазады.
-2. **Қайталаулар жою** — `ctf_events`-те бар ID-ларды буферден тазартады.
-3. **Жүктеп сақтау** — қалған ID-лар бойынша толық мәліметтерді жүктейді, қауіпсіздік тексерулерін жүргізеді және `ctf_events` кестесіне сақтайды.
+Telegram боты (сыртқы)
+    │
+    └─► ctf_events WHERE is_safe=1 AND posted_at IS NULL
+            │
+            └─► Formatter::event() → Telegram HTML хабары
+                    Тақырып, күндер, формат/салмақ,
+                    орналасу (онлайн/очно), сипаттама үзіндісі, сілтемелер
+                    → Telegram-ға жіберу → posted_at белгісі қойылады
+```
 
 ### Ақаулықтарды жою
 
@@ -191,13 +237,59 @@ CTFTimeParser/
     └── parser.log             # Лог работы (ротация при 5 МБ)
 ```
 
-### Принцип работы
+### Общий алгоритм
 
-При каждом запуске парсер выполняет три шага:
+```
+Cron (каждые 6 часов)
+    │
+    ▼
+parser.php запускается
+    │
+    ├─► Проверка блокировки (/tmp/ctftimeparser.lock)
+    │       Другой процесс работает → немедленный выход
+    │
+    ├─► Инициализация: config.php → Database (PDO) + CtftimeClient (cURL)
+    │
+    ├─► Шаг 1: Сбор ID
+    │       CtftimeClient → CTFTime API (следующие N дней)
+    │       Полученные ID → parser_buffer (INSERT IGNORE)
+    │
+    ├─► Шаг 2: Дедупликация
+    │       Удалить из parser_buffer ID, уже есть в ctf_events
+    │
+    ├─► Шаг 3: Загрузка и сохранение (для каждого нового ID)
+    │       │
+    │       ├─► CtftimeClient → полные данные события (JSON)
+    │       │
+    │       ├─► ID берётся из пути запроса (не из тела ответа) — защита от спуфинга
+    │       │
+    │       ├─► ContentSecurity::sanitize()
+    │       │       strip_tags + htmlspecialchars (XSS)
+    │       │       Проверка паттернов SSTI/SQLi
+    │       │       Валидация схемы URL + проверка SSRF
+    │       │       Ограничения длины полей
+    │       │
+    │       ├─► Санитизация не прошла → удалить из буфера, пропустить
+    │       │
+    │       ├─► is_safe=0 → сохранить в ctf_events (не публикуется)
+    │       │
+    │       ├─► is_safe=1 → сохранить в ctf_events (готово к публикации)
+    │       │
+    │       └─► Пауза 1 секунда между запросами
+    │
+    ├─► Запись в лог (ротация при превышении 5 МБ)
+    │
+    └─► Блокировка снимается (при краше — OS снимает автоматически)
 
-1. **Сбор ID** — получает список событий на следующие 7 дней из CTFTime API и записывает все ID в таблицу `parser_buffer`.
-2. **Дедупликация** — удаляет из буфера ID, уже присутствующие в `ctf_events`.
-3. **Загрузка и сохранение** — для каждого оставшегося ID загружает полные данные, выполняет проверки безопасности и сохраняет запись в `ctf_events`. Между запросами — пауза 1 секунда.
+Telegram-бот (внешний)
+    │
+    └─► ctf_events WHERE is_safe=1 AND posted_at IS NULL
+            │
+            └─► Formatter::event() → HTML-сообщение для Telegram
+                    Название, даты, формат/вес,
+                    место проведения (онлайн/очно), превью описания, ссылки
+                    → отправка в Telegram → проставляется posted_at
+```
 
 ### Схема базы данных
 
@@ -352,13 +444,59 @@ CTFTimeParser/
     └── parser.log             # Runtime log (auto-created, rotates at 5 MB)
 ```
 
-### How It Works
+### Overall Algorithm
 
-The parser follows a three-step pipeline on each run:
+```
+Cron (every 6 hours)
+    │
+    ▼
+parser.php runs
+    │
+    ├─► Lock check (/tmp/ctftimeparser.lock)
+    │       Another instance running → exit immediately
+    │
+    ├─► Bootstrap: config.php → Database (PDO) + CtftimeClient (cURL)
+    │
+    ├─► Step 1: Collect IDs
+    │       CtftimeClient → CTFTime API (next N days)
+    │       Received IDs → parser_buffer (INSERT IGNORE)
+    │
+    ├─► Step 2: Deduplicate
+    │       Remove from parser_buffer any IDs already in ctf_events
+    │
+    ├─► Step 3: Fetch and store (for each new ID)
+    │       │
+    │       ├─► CtftimeClient → full event details (JSON)
+    │       │
+    │       ├─► Event ID taken from request path (not response body) — anti-spoofing
+    │       │
+    │       ├─► ContentSecurity::sanitize()
+    │       │       strip_tags + htmlspecialchars (XSS)
+    │       │       SSTI / SQLi pattern detection
+    │       │       URL scheme validation + SSRF checks
+    │       │       Field length limits
+    │       │
+    │       ├─► Sanitization failed → delete from buffer, skip
+    │       │
+    │       ├─► is_safe=0 → store in ctf_events (withheld from publication)
+    │       │
+    │       ├─► is_safe=1 → store in ctf_events (ready to publish)
+    │       │
+    │       └─► 1-second pause between requests
+    │
+    ├─► Write to log (rotate when file exceeds 5 MB)
+    │
+    └─► Lock released (OS releases automatically on crash)
 
-1. **Collect IDs** — fetches the event list from CTFTime API for the next 7 days and writes all event IDs into the `parser_buffer` table.
-2. **Deduplicate** — removes any IDs from `parser_buffer` that already exist in `ctf_events`.
-3. **Fetch and store** — for each remaining ID, fetches full event details, runs security checks, and inserts the sanitized record into `ctf_events`. Each request is followed by a 1-second pause to avoid hammering the API.
+Telegram bot (external)
+    │
+    └─► ctf_events WHERE is_safe=1 AND posted_at IS NULL
+            │
+            └─► Formatter::event() → Telegram HTML message
+                    Title, dates, format/weight,
+                    venue (online/on-site), description preview, links
+                    → send to Telegram → posted_at is set
+```
 
 ### Database Schema
 
